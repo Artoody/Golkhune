@@ -1,20 +1,22 @@
 # backend
 
-Your server lives here (Node / Express / etc.).
+ESP32 ↔ n8n bridge server (Express + WebSocket).
 
-## Expected role
+## Run locally
 
-- Accept HTTP calls from n8n (e.g. `/trigger`)
-- Keep WebSocket connections open for ESP32
-- Expose status APIs for the frontend
+```bash
+cd backend
+npm install
+npm start
+```
+
+- Health: `GET /health`
+- n8n trigger: `POST /trigger`
+- ESP WebSocket: `ws://localhost:3000/`
 
 ## Railway
 
-- Root Directory: `backend`
-- Start command: whatever you define in `package.json`
-
-## Files to add
-
-- `package.json`
-- your entry file (e.g. `server.js` / `index.js`)
-- `.env` locally (use `.env.example` as a template — never commit real secrets)
+1. New service from this repo
+2. **Root Directory:** `backend`
+3. Deploy (uses `npm start`)
+4. Add a public domain, then point ESP `ws_host` and n8n `/trigger` at it

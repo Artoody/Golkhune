@@ -1,0 +1,13 @@
+{
+  "name": "esp32-n8n-bridge",
+  "version": "1.0.0",
+  "description": "WebSocket + HTTP bridge server connecting an ESP32 (Wokwi) to n8n",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
