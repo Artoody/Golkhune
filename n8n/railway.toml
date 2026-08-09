@@ -1,6 +1,7 @@
 [build]
 builder = "DOCKERFILE"
-# dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-# Configure after you add a Dockerfile
+healthcheckPath = "/healthz"
+restartPolicyType = "ON_FAILURE"

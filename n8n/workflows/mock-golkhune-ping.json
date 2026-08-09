@@ -1,0 +1,125 @@
+{
+  "name": "Golkhune Mock Ping",
+  "meta": {
+    "instanceId": "golkhune_mock"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "golkhune-mock",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-golkhune-mock",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "golkhune-mock"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://httpbin.org/uuid",
+        "options": {}
+      },
+      "id": "http-uuid",
+      "name": "Fetch Public UUID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "ok",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "a2",
+              "name": "project",
+              "value": "Golkhune",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "message",
+              "value": "n8n mock workflow is working on Railway",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "temperature_c",
+              "value": 24.5,
+              "type": "number"
+            },
+            {
+              "id": "a5",
+              "name": "humidity_pct",
+              "value": 62,
+              "type": "number"
+            },
+            {
+              "id": "a6",
+              "name": "uuid",
+              "value": "={{ $json.uuid }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "checked_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mock",
+      "name": "Mock Greenhouse Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [740, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch Public UUID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Public UUID": {
+      "main": [
+        [
+          {
+            "node": "Mock Greenhouse Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "golkhune-mock"
+    }
+  ]
+}
