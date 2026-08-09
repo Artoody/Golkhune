@@ -1,0 +1,6 @@
+[build]
+builder = "DOCKERFILE"
+# dockerfilePath = "Dockerfile"
+
+[deploy]
+# Configure after you add a Dockerfile
