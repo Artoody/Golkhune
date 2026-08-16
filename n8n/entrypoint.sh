@@ -9,13 +9,15 @@ mkdir -p /home/node/.n8n
 
 # Import mock workflow once per data volume (skips if already imported)
 if [ ! -f /home/node/.n8n/.golkhune_imported ]; then
-  echo "[golkhune] Importing mock workflows..."
+  echo "[golkhune] Importing mock workflows (best-effort)..."
+  set +e
   for f in /home/node/workflows/*.json; do
     [ -f "$f" ] || continue
-    n8n import:workflow --input="$f" || echo "[golkhune] import warning for $f"
+    n8n import:workflow --input="$f"
   done
   touch /home/node/.n8n/.golkhune_imported
-  echo "[golkhune] Import done. Activate the workflow in the UI if needed."
+  set -e
+  echo "[golkhune] Import step finished. Activate workflow in UI if needed."
 fi
 
 echo "[golkhune] Starting n8n on port ${N8N_PORT}..."
