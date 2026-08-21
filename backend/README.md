@@ -58,7 +58,14 @@ curl -X POST http://localhost:3000/api/webhooks/n8n ^
   -d "{\"temperature\":25.5,\"humidity\":60,\"heater_status\":true}"
 ```
 
-Invalid bodies return `400` with Zod details. Valid payloads are broadcast to every open `/ws/esp` client as:
+LED on/off (no telemetry required) — ESP32 GPIO 13 / D13:
+
+```bash
+curl -X POST http://localhost:3000/api/webhooks/n8n -H "Content-Type: application/json" -d "{\"led\":\"on\"}"
+curl -X POST http://localhost:3000/api/webhooks/n8n -H "Content-Type: application/json" -d "{\"led\":\"off\"}"
+```
+
+`command` (`"on"`/`"off"`) and boolean `led` are also accepted. Invalid bodies return `400` with Zod details. Valid payloads are broadcast to every open `/ws/esp` client as:
 
 ```json
 {
@@ -72,7 +79,7 @@ Invalid bodies return `400` with Zod details. Valid payloads are broadcast to ev
 }
 ```
 
-HTTP response: `{ "status": "success", "forwardedTo": <connected ESP count> }`. The same payload is stored in SQLite. ESP telemetry is logged and connect/disconnect events are saved.
+HTTP response: `{ "status": "success", "forwardedTo": <connected ESP count>, "led": "on"|"off"|null }`. Telemetry payloads are stored in SQLite; LED-only commands are forwarded without writing telemetry. ESP connect/disconnect events are saved.
 
 ESP / Wokwi should connect to `ws://localhost:3000/ws/esp` locally and `wss://<railway-host>/ws/esp` in production. HTTP and WebSocket share Railway's single `PORT`.
 

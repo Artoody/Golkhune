@@ -6,7 +6,7 @@ ESP32 firmware versions. Students write and flash / simulate these themselves.
 
 | Folder | Use |
 |--------|-----|
-| `v1-wokwi/` | Wokwi simulator sketch |
+| `v1-wokwi/` | Wokwi simulator sketch (`esp32_wokwi.ino` — LED on D13 / GPIO 13) |
 | `v2-hardware/` | Real ESP32 board sketch |
 
 ## Expected role

@@ -1,6 +1,8 @@
 # n8n — Golkhune (mock ready for Railway)
 
-Includes a **mock workflow** that you can hit over HTTP to confirm n8n is alive.
+Includes a **mock workflow** that you can hit over HTTP to confirm n8n is alive, plus an **ESP32 LED** workflow that POSTs on/off to the Railway backend.
+
+LED import/activate steps: `workflows/README.md` (`esp32-led-on-off.json`).
 
 ## What the mock does
 

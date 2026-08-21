@@ -1,0 +1,105 @@
+{
+  "name": "Golkhune ESP32 LED On/Off",
+  "meta": {
+    "instanceId": "golkhune_esp32_led"
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-led-on",
+      "name": "Turn LED On",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {},
+      "id": "manual-led-off",
+      "name": "Turn LED Off",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://backend-production-33fc.up.railway.app/api/webhooks/n8n",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"led\": \"on\"\n}",
+        "options": {}
+      },
+      "id": "http-led-on",
+      "name": "POST LED On",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://backend-production-33fc.up.railway.app/api/webhooks/n8n",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"led\": \"off\"\n}",
+        "options": {}
+      },
+      "id": "http-led-off",
+      "name": "POST LED Off",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 420]
+    }
+  ],
+  "connections": {
+    "Turn LED On": {
+      "main": [
+        [
+          {
+            "node": "POST LED On",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Turn LED Off": {
+      "main": [
+        [
+          {
+            "node": "POST LED Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "golkhune-esp32-led"
+    }
+  ]
+}
