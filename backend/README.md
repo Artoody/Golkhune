@@ -14,12 +14,12 @@ Golkhune Node.js (Express) backend. Target flow:
 | `GET` | `/me` | Bearer JWT | Current admin profile |
 | `POST` | `/api/webhooks/n8n` | no | Mock n8n greenhouse payload → SQLite + ESP32 |
 | WS | `/ws/esp` | no | ESP32 (or Wokwi) realtime bridge |
-| `GET` | `/api/public/dashboard` | no | Latest telemetry + camera placeholder (Maya) |
+| `GET` | `/api/public/dashboard` | no | Latest telemetry + camera placeholder |
 | `GET` | `/api/admin/status` | Bearer JWT | n8n / ESP32 / camera status |
 | `GET` | `/api/admin/logs` | Bearer JWT | Recent system logs |
 | `POST` | `/api/admin/command` | Bearer JWT | Admin text command for the AI |
 
-### Frontend (Maya)
+### Frontend API
 
 Public dashboard (no auth):
 
