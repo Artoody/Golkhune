@@ -170,18 +170,19 @@ function insertSystemEvent({ level = "info", action, message, source, meta }) {
   return sqlite.prepare("SELECT * FROM system_events WHERE id = ?").get(info.lastInsertRowid);
 }
 
-function insertAiCommand({ command, adminEmail }) {
+function insertAiCommand({ command, adminEmail, status = "accepted" }) {
   const sqlite = getSqlite();
   const info = sqlite
     .prepare(
       `
       INSERT INTO ai_commands (command, admin_email, status)
-      VALUES (@command, @admin_email, 'accepted')
+      VALUES (@command, @admin_email, @status)
     `
     )
     .run({
       command,
       admin_email: adminEmail || null,
+      status: status || "accepted",
     });
 
   return sqlite.prepare("SELECT * FROM ai_commands WHERE id = ?").get(info.lastInsertRowid);

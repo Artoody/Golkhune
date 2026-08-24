@@ -1,6 +1,7 @@
 const {
   insertTelemetry,
   insertSystemEvent,
+  insertAiCommand,
 } = require("../db/sqlite");
 const {
   isTelemetryPayload,
@@ -16,14 +17,25 @@ function receiveN8nWebhook(req, res, next) {
     const telemetry = isTelemetryPayload(data);
     const led = normalizeLedCommand(data);
 
-    let saved = null;
+    let telemetryId = null;
     if (telemetry) {
-      saved = insertTelemetry({
+      const saved = insertTelemetry({
         temperature: data.temperature,
         humidity: data.humidity,
         heater_status: data.heater_status,
         source: "n8n",
       });
+      telemetryId = saved.id;
+    }
+
+    let commandId = null;
+    if (data.command) {
+      const savedCommand = insertAiCommand({
+        command: data.command,
+        adminEmail: "n8n",
+        status: data.status || "accepted",
+      });
+      commandId = savedCommand.id;
     }
 
     const payload = { ...data };
@@ -41,6 +53,9 @@ function receiveN8nWebhook(req, res, next) {
     const forwardedTo = typeof broadcast === "function" ? broadcast(message) : 0;
 
     const parts = [];
+    if (data.command) {
+      parts.push(`AI command: ${data.command}`);
+    }
     if (led) {
       parts.push(`LED ${led}`);
     }
@@ -54,15 +69,25 @@ function receiveN8nWebhook(req, res, next) {
 
     insertSystemEvent({
       level: "info",
-      action: led && !telemetry ? "n8n.led" : "n8n.webhook",
-      message: `n8n webhook: ${parts.join("; ")}`,
+      action: data.command
+        ? "n8n.ai_command"
+        : led && !telemetry
+          ? "n8n.led"
+          : "n8n.webhook",
+      message: `n8n webhook: ${parts.join("; ") || "received"}`,
       source: "n8n",
-      meta: { telemetryId: saved ? saved.id : null, forwardedTo, led: led || null },
+      meta: {
+        telemetryId,
+        commandId,
+        forwardedTo,
+        led: led || null,
+        status: data.status || null,
+      },
     });
 
     console.log(
-      `[n8n webhook] ${led ? `led=${led}` : "telemetry"} saved=${
-        saved ? saved.id : "none"
+      `[n8n webhook] telemetryId=${telemetryId}, commandId=${commandId}, led=${
+        led || "none"
       }, forwarded to ${forwardedTo} ESP32 client(s)`
     );
     if (forwardedTo === 0) {

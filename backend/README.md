@@ -52,6 +52,8 @@ On startup the backend creates `data/golkhune.db` (override with `SQLITE_PATH`) 
 
 ### Mock n8n webhook → ESP32
 
+Telemetry:
+
 ```bash
 curl -X POST http://localhost:3000/api/webhooks/n8n ^
   -H "Content-Type: application/json" ^
@@ -65,7 +67,15 @@ curl -X POST http://localhost:3000/api/webhooks/n8n -H "Content-Type: applicatio
 curl -X POST http://localhost:3000/api/webhooks/n8n -H "Content-Type: application/json" -d "{\"led\":\"off\"}"
 ```
 
-`command` (`"on"`/`"off"`) and boolean `led` are also accepted. Invalid bodies return `400` with Zod details. Valid payloads are broadcast to every open `/ws/esp` client as:
+AI command (telemetry fields are optional):
+
+```bash
+curl -X POST http://localhost:3000/api/webhooks/n8n ^
+  -H "Content-Type: application/json" ^
+  -d "{\"command\":\"turn on the heater\",\"status\":\"pending\"}"
+```
+
+`led` (`"on"`/`"off"`), free-text `command`, and optional `status` are accepted. Numbers/booleans may arrive as strings from n8n. Invalid bodies return `400` with Zod details. Valid payloads are broadcast to every open `/ws/esp` client as:
 
 ```json
 {
