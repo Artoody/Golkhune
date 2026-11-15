@@ -11,7 +11,11 @@ function required(name) {
 }
 
 function parseOrigins(raw) {
-  return String(raw || "")
+  const value = String(raw || "").trim();
+  if (value === "*") {
+    return true;
+  }
+  return value
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
