@@ -1,0 +1,19 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>پخش زندهٔ دوربین گلخانه</title>
+<style>html,body{margin:0;height:100%;background:#0b0f14;color:#dfe7ef;font-family:Vazirmatn,Tahoma,sans-serif}
+#bar{display:flex;gap:12px;align-items:center;padding:8px 14px;background:#141b24;font-size:14px}
+#dot{width:10px;height:10px;border-radius:50%;background:#c0392b}#dot.on{background:#2ecc71}
+button,a{background:#22303f;color:#dfe7ef;border:0;border-radius:6px;padding:5px 12px;cursor:pointer;text-decoration:none;font-size:13px}
+#wrap{height:calc(100% - 44px);display:flex;align-items:center;justify-content:center}
+img{max-width:100%;max-height:100%;background:#000}#msg{position:absolute;opacity:.7}</style></head><body>
+<div id="bar"><span id="dot"></span><b>دوربین گلخانه</b><span id="info">در انتظار شبیه‌ساز…</span><span style="flex:1"></span>
+<a href="/latest.jpg" download="frame.jpg">ذخیرهٔ فریم</a><button id="fs">تمام‌صفحه</button></div>
+<div id="wrap"><div id="msg">در شبیه‌ساز تیک «ارسال پخش زنده» را بزنید.</div><img id="v" src="/stream" alt=""></div>
+<script>
+const $=i=>document.getElementById(i);let last=0,lt=performance.now();
+async function poll(){try{const s=await (await fetch('/status',{cache:'no-store'})).json(),n=performance.now();
+ const live=s.frames>0&&s.age<2,fps=(s.frames-last)/((n-lt)/1000);last=s.frames;lt=n;
+ $('dot').className=live?'on':'';$('msg').style.display=live?'none':'block';
+ $('info').textContent=live?('زنده · '+fps.toFixed(1)+' فریم بر ثانیه · '+$('v').naturalWidth+'×'+$('v').naturalHeight):'در انتظار شبیه‌ساز…';
+}catch(e){$('info').textContent='سرور در دسترس نیست';}}
+setInterval(poll,1000);$('fs').onclick=()=>document.documentElement.requestFullscreen();
+</script></body></html>
