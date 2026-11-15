@@ -1,10 +1,14 @@
-# Space Greenhouse (گلخانهٔ فضایی) — Complete Project Brief for AI Assistants
+# Golkhune · Space Greenhouse (گلخانهٔ فضایی) — Complete Project Brief for AI Assistants (v2: simulator + demo system architecture)
 
 > **Purpose of this file:** give any AI (or new teammate) the full context of the project from zero to one hundred: what it is, why it exists, what has been built, how the code works, what the rules are, what is still open. Read sections 1–3 first; everything else is reference.
 > **Language note:** the project's user interface is Persian (RTL). Persian UI strings are quoted exactly so you can find them in the code. Explanations are in English.
+> **Document map:** **Part A** (§1–§18) = the 3D simulator (what exists and runs). **Part B** = demo system architecture from the team's technical meeting report of 24 Aban 1405 (15 Nov 2026): two ESP32s, laptop server, digital twin, AI/n8n commands, navigation loop, risks, acceptance steps — a *proposal*. **Part C** = how A and B fit, with discrepancies to resolve. **Part D** = provenance.
+>
 > **Honesty note:** the assistant that wrote the latest code could not run a browser (no WebGL). Code was syntax-checked only (`node --check`). Treat runtime behavior as *untested* until a human confirms.
 
 ---
+
+# PART A — The 3D simulator
 
 ## 1. TL;DR
 
@@ -263,6 +267,9 @@ Status: **research done, not implemented.** Summary:
 4. Replace assumed numbers with real ones: pump model/flow, tank size, nozzle diameter, ADC calibration, refill rate, evaporation scaling.
 5. Verify **pin-level PCB connectivity** (which transistor/relay drives the pump).
 6. Optional later: collisions, ML navigation implementation, real-robot link (ESP32) to compare sim vs reality.
+7. **Reconcile with the demo plan (Part C):** unify marker standard (ArUco), freshness threshold (1.5 s vs 600 ms), and move the control loop to the laptop (B).
+8. **Fix arm-before-freshness ordering** in `navTick` (Part C, item 6) before any servo hardware is connected.
+9. Feed the twin from the server (state/events, data age, stale handling) — Part B3.
 
 ---
 
@@ -300,3 +307,223 @@ Status: **research done, not implemented.** Summary:
 - *How do I add another plant?* Add a `TAGS` entry with `role:'plant'`, a tag image in `TAG_B64` (or `makeTagURL(id)`), `pos` in cm; `plants` and `NAV` tasks are built from `role === 'plant'` — update `navMission` task list if needed.
 - *Why does the robot not move in autopilot?* Camera cannot see corner tags / robot tag (check "تخمین موقعیت" card and the status line).
 - *How do I get the simulated camera into OpenCV?* Run `server.py`, tick "پخش زندهٔ دوربین", open `http://localhost:8000/stream`.
+
+---
+---
+
+# PART B — Demo system architecture (from the team's technical meeting report)
+
+> **Source:** PDF "گلخونه · گزارش فنی جلسه" — *proposed version for the ground demo*, dated **24 Aban 1405 (15 Nov 2026)**. It summarizes the team meeting, Mahan's spec (`golkhune-complete-project-spec.md`), and a review of a separate **vision-guidance package** (`greenhouse_camera_nav`: `server.py`, `vision.py`, `nav_pixel.js`, plus a simulator page).
+> **Status of everything in Part B: a PROPOSAL.** The report itself says cloud service status, board wiring and on-hardware behavior were **not measured**. Nothing in Part B is implemented in the 3D simulator of Part A unless Part C says so.
+
+## B1. Executive summary
+
+A **laptop next to the greenhouse** makes the operational decisions. **Two ESP32 boards** run sensors and actuators. A **digital twin** (3D model) reads the *observed* state and the *running mission* from the server.
+
+**Answer to the meeting's main question:** give the twin **both** (a) the *movement intent* (destination and proposed path) **and** (b) the *estimated position from the camera image plus device feedback*, so the 3D model stays in sync with real motion. Sending coordinates and state is light; **images are separate and on demand**.
+
+### What the team said (reported)
+1. **Side B** in the demo = greenhouse, robot, camera (on the robot body or on the greenhouse rail) and the laptop near the devices. Both ESP32s and the laptop are on **one local network**.
+2. **Side A** = operator and twin display. They want to know what the device *sees*, which command was *accepted*, and what *actually happened*.
+3. Periodic images and environment data go to an **AI for mission-level decisions**. The robot's **path and motion** are decided by **camera + A\* + controller**, not by the AI.
+
+### Status boundary (known vs. demo plan)
+| Area | Known status |
+|---|---|
+| Vision guidance | Browser package uses rendered JPEG, **ArUco**, **A\***. Reaching four destinations and stopping when the view is lost was tested **in the browser**. |
+| IoT & hardware | Mahan's doc describes the **n8n bridge, backend, and LED in Wokwi**. Real connection of two boards, a physical camera, and motor/pump commands **needs testing**. |
+| Side A & "space version" | The 3D view of the existing simulator. Connecting it to device state, long-distance links, and advanced environment features are in the **development plan**. |
+
+## B2. Connection architecture
+
+```
+B │ local network beside the greenhouse
+  │  Greenhouse camera ──JPEG/local stream──► OpenCV on laptop ──► tags + estimated pose
+  │  Local controller (A* + motion correction) ──► ESP32 robot (motors, arm, pump per wiring)
+  │  ESP32 greenhouse ◄──► reads sensors, executes permitted outputs
+  │  Laptop backend: state, mission queue, event log ◄──► ESP32 robot (status + command result)
+A │ operator & twin
+  │  Operator browser ◄──► 3D model, state, mission requests ◄──► B backend API
+  │  (initial state snapshot + live updates)
+Optional periodic-analysis path
+  │  Backend B ◄──► one timed packet (sensors + selected photo) ──► AI model API / n8n
+  │  ──► mode proposal + evidence ──► validation in B: accept/reject BEFORE execution
+```
+
+**Connection choice for the demo**
+- One **local access point** with a **reserved IP** for the laptop.
+- Both boards open a **WebSocket to the laptop**; each has its **own ID and credential**.
+- Camera attached to the laptop → direct images. If it is a standalone module on the robot body → its **JPEG path to the laptop is separate from control messages**. The choice depends on camera model, rail cabling, and achievable frame rate.
+- Operator browser A can be on the same Wi-Fi, even on the same laptop. For viewing from another network you need an **authenticated access path** or a **cloud relay with outbound connection from B**.
+- **Space scenario:** design the Earth–space link assuming latency and outages; **the motion loop stays in B**.
+
+*The fast image path is local; the operator path goes through the API.*
+
+## B3. Live state sync for the digital twin
+
+| What the twin shows | Reference data, behavior, suggested start rate |
+|---|---|
+| **Robot state** | Server takes from OpenCV: estimated position and heading, view quality, frame time. Start at **2–5 messages/s**. The planned path is a **separate layer**; the body moves **only per observed state**. |
+| **Greenhouse state** | Every **2–5 s**: temperature, humidity, observable outputs, each with unit, source, sample time. Disconnected sensor data is shown as **unavailable or stale**. |
+| **Intent and result** | Published **immediately on every mission-status change**. "sent", "received", "running", "succeeded" are different things; success depends on that action's own criterion. |
+| **Image** | Last selected photo with ID and capture time. **Preview only on request**, rate-limited. Navigation processing in B pulls the frames it needs itself. |
+
+**Page open / recovery sequence:** get initial state (latest committed version) → receive later events (with a server counter) → detect gaps → re-request state.
+
+Proposed interface: `GET /state` plus `GET /events` stream (SSE or WebSocket). The initial state carries a **version number**. The client applies only **newer** events and **re-fetches state** if a message is lost or the server restarts. Keep each observation's time. After the freshness window expires, the model **stays at the last known position and shows the data age**.
+
+```json
+{
+  "type": "robot.pose", "seq": 804, "device_id": "rover-01",
+  "source": "camera", "frame_id": "f-1182",
+  "captured_at": "2026-11-15T10:30:00.125Z",
+  "x_cm": 12.4, "z_cm": -8.2, "heading_rad": 1.14,
+  "quality": "valid", "mission_id": "m-42"
+}
+```
+*Proposed contract.* **Origin = field center; zero heading = +Z; angles in radians.** Times stored in UTC, shown in Tehran time. Freshness of motion measured with a **local monotonic clock**.
+
+**Load estimate** (data only, before network overhead): a 300-byte status × 5/s ≈ **12 kbit/s**; a 100 KB JPEG × 5 fps ≈ **4 Mbit/s**. Measure with the real package.
+
+## B4. Commands and decisions (AI contract, local execution)
+
+For the demo use **n8n** based on the team's existing flow. Workflow starts with a **manual trigger** on presentation day and a **schedule** for periodic monitoring. Keep the model and orchestrator behind a **JSON contract** so changing the provider (or running the model on the laptop) needs no firmware change.
+
+```
+photo + sensors (with time & ID) → model (mode proposal) → backend (freshness & permission check) → device (execute & report result)
+```
+```json
+{
+  "mode": "MOVE_TO",
+  "target_id": "tag-5",
+  "evidence_ids": ["snapshot-128", "pose-804"],
+  "reason": "Plant 1 selected for inspection"
+}
+```
+
+| Proposed mode | Owner and acceptance condition |
+|---|---|
+| `HOLD`, `INFO_GET` | Backend. Keep state / read the latest data **with its age**. |
+| `CAPTURE` | Camera service. Result returns with frame ID and capture time. Back-to-back requests are limited. |
+| `MOVE_TO` (the report also writes `TO_MOVE`) | Laptop controller + robot board. Valid target ID, **fresh view and comms**. |
+| `WATER`, `TANK_FILL` | Only after **operator confirmation** and actuator tests. Watering uses moisture measurement and a **time/volume cap**. Filling only after **connection and tank capacity are confirmed**. |
+| Light and gases | For the demo, light = a test LED. Gas and UV control are in the development plan, with verified sensors/actuators and independent control. |
+
+**Validation:** the n8n *Structured Output Parser* only checks message **shape**. The server separately checks the **mode enum, allowed target, mission ownership, evidence freshness, preconditions, emergency-stop state**, and generates the **command ID**. Incomplete, duplicate, or late responses are **logged and rejected**. **Hard limits for pump and motor are also enforced on the board itself.**
+
+**Command lifecycle:** `accepted → sent → acknowledged → running → succeeded / failed / cancelled / expired`. Each command has `command_id`, target device, `mission_id`, and a deadline. **Repeating the same ID returns the previous result.** After a comms loss with unknown result, **check the physical state first**, then decide on a retry.
+
+> **AI suggests a mode · motion control executes in B.**
+
+## B5. Navigation and scheduling (mission cycle)
+
+**Example: move to the second plant**
+1. **A** registers a request "move to tag 6" (or the AI proposes it). Backend checks preconditions and shows the destination on the twin.
+2. The greenhouse camera streams frames to **B**. **OpenCV** detects the robot tag and the reference tags. **Lens calibration, reference-tag positions, and tag mount height** are used for position estimation.
+3. **A\*** finds passable waypoints to the stopping distance from the pot. A **proportional controller** corrects linear and angular speed on each fresh estimate. The robot board converts these commands to motor output **with a short deadline**.
+4. Backend publishes estimated position and mission phase. At the end, **several fresh observations inside the target area plus a stop command** register the arrival. **Watering is a separate mission** with its own preconditions.
+
+| Loop | Proposal |
+|---|---|
+| Vision & motion command | Test target: **5–10 fresh estimates/s** on B while moving. **600 ms** is the *simulator's* sample threshold; measure the real deadline and allowed speed from latency, slip and stopping distance. The **ESP must extend motion permission with each fresh message and zero the motor when the deadline expires.** |
+| Analysis photo & AI | Demo: manual request. Pilot schedule: every 20 min or hourly, adjusted after observing plant needs. If the previous turn is still running, a new start is **rejected or merged**. |
+| Report & archive | Last state in memory and persistent storage. Mission events in **SQLite** or the existing store. Selected photos on disk with frame ID and retention policy. The preview queue is limited so motion processing never lags. |
+
+**Disconnections:** internet loss ≠ Wi-Fi loss. With internet down but B and the local network healthy, the local display and an **already-accepted local mission** continue under safety rules. If robot comms drop, position goes stale, or the view is invalid, **motion stops**. After recovery the demo restarts with **operator re-confirmation**.
+
+Technical basis: ArUco documentation in OpenCV. For software hangs, the **ESP watchdog** complements the local command deadline (ESP-IDF guide). *Short-lived command on the board · arrival determined from observation.*
+
+## B6. Defects and open questions (pre-hardware review)
+
+| Type | Item | Effect / next action |
+|---|---|---|
+| Confirmed gap | **Simulator image input** | In the package, the image goes from `camCanvas` to `vision/`; a Python server listens on **localhost**. A physical camera needs a fresh input; side A needs an **authenticated LAN service**. The processing service may stay internal. |
+| Confirmed gap | **Motion & dock** | The browser controller moves the *virtual* robot. The old dock used **true internal simulator state**. On hardware, being next to tag 7 ≠ water connection → define a **connection sensor** and **level/flow feedback**. |
+| Control-order defect | **Arm safety check** | In the current vision-guidance loop, **stowing the arm happens before checking frame freshness and ground state**. Before connecting servos, put permission/stop checks **before any actuator command**. Suggested test: view lost during arm stowing. |
+| Design risk | **Command copy in twin** | On real ground, slip, stops and obstacles cause path divergence. Show **observed state and planned path separately** and announce a **stale state** when the view is lost. |
+| Design risk | **Command conflicts** | Operator, AI and schedule requests pass through **one valid queue**; each device has **one mission owner**; the **emergency stop is independent of the normal queue and has priority**. |
+| Design risk | **Media vs control** | Back-to-back JPEGs can delay motion/feedback messages. Separate and limit image transfer; **drop stale frames from the navigation queue**; show frame age in the UI. |
+| Hardware question | **Boards, pump, sensors** | Define the owner of every sensor/actuator, the camera model, pins and power in a **wiring map**. Show tank level and water amount **as measurements only if a sensor or testable method exists**. |
+| Algorithm question | **Terrain, obstacles, tag type** | Demo: **flat ground, ArUco tags** per the package. Test tag coverage with a real camera. The current **A\* does not handle tag-less obstacles or uneven terrain**. AprilTag and PPO follow a separate research roadmap. |
+| Service question | **n8n or Google?** | n8n is suggested (team's earlier path). If "Google Workspace Studio" is meant, check that account's access and ability to reach the internal API separately. |
+
+## B7. Demo readiness — build order and acceptance
+
+| Step | Deliverable and acceptance criterion |
+|---|---|
+| 1 · Network & boards | Two independent IDs connect over the LAN. Receive telemetry and toggle a **test LED with an ACK from the correct board**. Test Wi-Fi drop/reconnect and re-sending the same ID. |
+| 2 · Image & position | A real camera on B sees the **4 corner tags and the robot tag** at chosen points. With several measured positions/angles, measure **position and heading error, detection rate, frame age**. Covering a tag must lead to an **invalid state**. |
+| 3 · Local motion | On flat ground, from three starting points go to two destinations. Record time, final distance, **minimum clearance** and stop. Test robot-network loss, camera loss, and a physical stop at limited speed. |
+| 4 · Twin view | Side A gets the initial state and shows **observed motion, proposed path and mission history**. Test latency and recovery with page refresh or A disconnect. |
+| 5 · AI & actuator | Test invalid responses, stale data, internet outage, and command repetition. **Only then** add watering or docking, after wiring checks, limits, and a success-verification method. |
+
+**Suggested work split**
+| Team | Scope |
+|---|---|
+| Camera & calibration | Camera model, mount, frame rate, tag error, pose output. |
+| Board & robot | Wiring, device ID, command execution, local limits and feedback. |
+| Server & n8n | State, mission log, mode validation, queue control, error reports. |
+| Twin & presentation | Observed view, data age, image preview, fixed demo scenario. |
+
+**Decisions needed at the next meeting:** camera model and connection path · role table of the two boards · where operator A sits on demo day · photo interval · speed cap and stopping distance · arrival criterion · how to measure "tank filled". **Numeric motion criteria come from physical tests.**
+
+**Delivery criterion for the demo: *observe the command, the state and the result.***
+
+---
+---
+
+# PART C — How Part A (simulator) and Part B (demo plan) fit together
+
+*(This part is the integrator's analysis, not from the PDF. Verify before relying on it.)*
+
+## C1. Alignment (things that already match)
+| Topic | Simulator (Part A) | Demo plan (Part B) |
+|---|---|---|
+| Coordinates | Origin = field center, **heading 0 = +Z** (`θ = atan2(Δx, Δz)`), cm, radians | Same convention in the proposed `robot.pose` contract |
+| Tag IDs | corners 0–3, robot **4**, plants **5, 6**, station **7** | `tag-5`, `tag-6`, `tag-7` used in examples |
+| Sensing principle | Robot localized **only from the greenhouse camera + tags** | Same: OpenCV pose estimate from tags |
+| Control split | Navigation is **geometric/control**, not AI | "AI suggests a mode · motion control executes in B" |
+| Position update | Camera fix every 250 ms + dead-reckoning between fixes | Target 5–10 fresh estimates/s |
+
+## C2. Mapping simulator features → proposed demo modes
+| Demo mode | Closest simulator feature |
+|---|---|
+| `MOVE_TO tag-5/6` | Navigation task `{type:'plant'}` (`navMission`) |
+| `TANK_FILL` | Navigation task `{type:'station'}` + `refill` state (`navRefill`) |
+| `WATER` | Irrigation auto logic (`IRR.auto`, probe + hysteresis 30 %/65 %) |
+| `CAPTURE` | `camCanvas` + live stream (`/latest.jpg`, `/stream`) |
+| `HOLD` | `navStop()` / manual WASD cancel |
+| `INFO_GET` | Spec tab (`updateSpecs`) and status lines |
+| Twin | The 3D page itself (today it is **self-contained**; Part B wants it fed by the server) |
+
+## C3. Gaps and discrepancies to resolve
+1. **Where the control loop runs.** Simulator: a JavaScript state machine **inside the browser page** (`navTick`, `estimateScene`). Plan: the loop runs in **B (laptop, OpenCV + A\* + controller)**. To go to hardware, the same logic must move to B; the simulator page then becomes the **twin and test bench**. The vision-guidance package (`greenhouse_camera_nav`) is a *different* code base with ArUco + A\*; **both have a `server.py` — do not confuse them** (the simulator's `server.py` is only a camera-stream relay).
+2. **Marker standard.** The plan assumes **ArUco (OpenCV)**. The simulator uses its own tag textures (inherited from the professor's file) and a **simulated pattern for tag 7** that is **not a valid ArUco/AprilTag**. For hardware, tags and dictionary must be unified; the simulator's tag images are not verified to match a specific dictionary.
+3. **Freshness thresholds.** Simulator stops after **1.5 s** without a robot-tag fix; the package/plan mentions **600 ms** (a simulator-sample value to be re-measured). Decide one value from measured latency.
+4. **Docking truth.** Simulator `dockcheck` uses the **true** rover pose (like the old dock criticized in B6). On hardware, "arrived next to tag 7" ≠ "water connected" → needs a connection sensor and level/flow feedback.
+5. **Water measurements.** The simulator computes tank volume, delivered/wasted water. On hardware, show water amount only if a **sensor** exists (plan B6). Pump flow, tank size, nozzle and ADC calibration in Part A are **assumptions**.
+6. **Arm safety ordering — the same class of defect exists in the simulator.** In `navTick`, the arm interpolation (`NAV.armT`) runs **before** the "no fix for 1.5 s" check, so the arm keeps moving while the robot is blind. Fix before any hardware link: do the freshness/permission check first, then move any actuator.
+7. **Environment sensors.** Simulator uses sliders (`temp`, `air`) as DHT21 stand-ins and simulated soil moisture; the plan wants real data with **unit, source, sample time, and "stale/unavailable" states**.
+8. **No command lifecycle in the simulator.** Part B's command IDs, ACKs, expiry, queue, and emergency-stop path are **not implemented** in Part A.
+9. **Terrain & obstacles.** Simulator has a hills option and route detours around plants/station, but the plan notes **A\* does not cover tag-less obstacles or uneven terrain**, and localization assumes a flat plane.
+
+## C4. Suggested integration path (not decided by the team)
+1. Keep Part A as the **digital twin** and test bench; add a server connection that feeds it `robot.pose`, greenhouse state and mission events (B3), with data-age display and "stale" handling.
+2. Move navigation (estimation → A\* → controller → deadline-based commands) to **B** and reuse the simulator's camera model for virtual tests.
+3. Execute the acceptance steps B7 in order; only then add watering/docking.
+4. Align marker type (ArUco), freshness thresholds, and coordinate/units contract across both code bases.
+
+---
+---
+
+# PART D — Provenance of this brief
+
+| Source | Used for |
+|---|---|
+| Simulator code (`greenhouse_live_sim.html`) written/edited in this project | Part A |
+| Professor's feedback (irrigation, sizes, accuracy, PCB, report) | §1 rules |
+| `Space_GreenHouse.PcbDoc` (parsed by names/nets) | §13 |
+| Team meeting report PDF "گلخونه · گزارش فنی جلسه" (24 Aban 1405) | Part B (translated and condensed) |
+| Integrator analysis | Part C |
+
+*Part B items are proposals unless stated otherwise; the report's authors did not measure cloud status, board wiring, or hardware performance.*
