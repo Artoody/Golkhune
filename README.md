@@ -38,3 +38,5 @@ python server.py 8000      # then open http://localhost:8000/
 
 - Details and controls: [`simulation/README.md`](simulation/README.md)
 - Full project brief (for people and AI assistants): [`docs/PROJECT_BRIEF_Space_Greenhouse.md`](docs/PROJECT_BRIEF_Space_Greenhouse.md)
+
+## KhanehIdea
