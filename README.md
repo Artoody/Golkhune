@@ -18,6 +18,10 @@ golkhune/
 `n8n` → HTTP → `backend` → WebSocket → `ESP32`  
 `frontend` talks to `backend`
 
+## Architecture and failure analysis
+
+Persian classroom report: [مسیر ارتباط، حالت‌های دوقلو و سناریوهای خرابی](docs/FAILURE_ANALYSIS_FA.md). It distinguishes the current backend/simulator from the proposed hardware and digital-twin integration.
+
 ## Student workflow
 
 1. Fork this repo.
@@ -40,4 +44,5 @@ python server.py 8000      # then open http://localhost:8000/
 - Full project brief (for people and AI assistants): [`docs/PROJECT_BRIEF_Space_Greenhouse.md`](docs/PROJECT_BRIEF_Space_Greenhouse.md)
 
 ## KhanehIdea
+
 Mr.Alizadeh - Sadegh - Mahan - Saba - Maya - Alisan
