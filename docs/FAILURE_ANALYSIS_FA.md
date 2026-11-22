@@ -1,3 +1,100 @@
+# Greenhouse Communication Path and Failure Analysis
+
+This report separates the repository's current implementation from the proposed hardware and digital-twin architecture. Numerical thresholds and rates are suggestions for experiments; they must be measured on the real system.
+
+## 1. Current implementation and proposed architecture
+
+### What is implemented in the repository
+
+```
+n8n ──HTTP──► backend (Express, Railway or local)
+                    ├──► SQLite: telemetry and system_events
+                    └──WebSocket /ws/esp──► all connected ESP32 clients
+
+frontend: currently a scaffold; no connected digital-twin dashboard
+
+simulation/greenhouse_live:
+browser (3D scene, simulated vision and navigation) ──HTTP──► Python server
+                                                         └── MJPEG /stream and /latest.jpg
+```
+
+According to the [backend guide](../backend/README.md), the n8n webhook stores telemetry and broadcasts payloads to every connected `/ws/esp` client. The documented WebSocket route has no authentication; the webhook response reports the number of connected clients, but the current documentation does not define an ACK/result lifecycle for device command execution. `CAMERA_STREAM_URL` is a dashboard placeholder. The simulator is separate: its navigation runs in JavaScript in the browser, while its Python server serves the page and camera frames.
+
+### Proposed hardware and digital-twin architecture
+
+```
+real camera ─JPEG/LAN─► laptop vision service B ─► pose/frame time ─┐
+robot ESP32 ◄── deadline-based WebSocket + ACK ─► backend/controller B ├─► API/events ─► digital twin A
+greenhouse ESP32 ◄──── WebSocket/telemetry ─────► backend B           │
+n8n/AI ──HTTP mode proposal──► validation and queue in backend B ─────┘
+```
+
+This is an **integration proposal**, not the current deployed architecture. Internet loss is different from LAN loss: if local control and devices remain healthy, an accepted local mission may continue under safety rules. Loss of robot communication or invalid vision should stop motion.
+
+## 2. Digital-twin states
+
+The twin should keep observed state separate from the planned path and commands. Every data point should include its sample time and age.
+
+- **Fresh:** the latest observation is valid and within its measured freshness deadline; it may be shown as observed position.
+- **Stale:** the camera frame or telemetry deadline has passed; label the last position as the “last observation,” show its age, and stop autonomous motion.
+- **Invalid/Unavailable:** tags or sensors cannot provide a trustworthy estimate; do not invent a fresh position or treat commanded motion as confirmed. Enter a safe hold.
+- **Pending:** a command was sent but no ACK/result arrived; do not display success. After recovery, check physical state before deciding whether to retry.
+- **Diverged:** observed motion differs from the planned path or goal; record the discrepancy and likely causes such as slip, stops, obstacles, or delay. Correct the plan only from a valid observation.
+
+## 3. Failure modes, effects, and mitigations
+
+| # | Area | Failure or delay | Effect | Prevention | Expected response / recovery |
+|---|---|---|---|---|---|
+| 1 | ESP32 ↔ backend | Wi-Fi or WebSocket disconnect | Commands are not delivered or their result is unknown; continuing motion may be unsafe | Message IDs, short deadlines, heartbeat, and an independent board watchdog | Board zeros motors when the deadline expires; mark status disconnected/unknown; after reconnect, inspect physical state and require operator confirmation for a new command |
+| 2 | Camera → vision | Missing/stale frames or low frame rate | Old pose reaches the controller and the robot may leave its route | Frame IDs and timestamps, bounded queues, dropping old frames, and measuring frame age/rate | If frame age exceeds the tested limit or the robot tag is lost, stop motion and mark the twin Stale/Invalid |
+| 3 | Localization | Occluded tag, poor calibration/geometry, glare, or bad lighting | Position and heading errors can cause a collision or a wrong destination | Test camera coverage, calibrate, use reference tags, and track estimate quality | Reject low-quality estimates; slow or stop; show position/heading error and log the frame ID |
+| 4 | Network/controller | Delayed or out-of-order messages | An old command may execute after a new one; the twin falls behind | Sequence numbers, expiry times, bounded queues, and separating image traffic from control | Reject expired/duplicate messages; verify sequence order; rebuild position from a fresh observation |
+| 5 | Backend | Outage or restart | New commands and history are temporarily unavailable; SQLite may be lost on ephemeral Railway storage | Health checks, persistent volume, backups, and event logging | Do not accept new missions; after recovery, check service health and device state; do not resume a mission automatically |
+| 6 | AI/n8n → backend | Invalid, late, or repeated response; internet loss | Wrong or duplicate operating mode | AI only proposes; server validates mode, target, freshness, and mission ownership; use idempotent IDs | Reject and log invalid/late responses; keep emergency stop outside the normal queue; internet loss alone need not stop a healthy local mission |
+| 7 | Backend ↔ multiple ESP32s | Broadcast to all clients or ambiguous device ID | Wrong boards may receive or execute a payload | Explicit device IDs, per-device authorization, and ACKs that identify the target | Do not mark a command executed until the intended device ACKs; report ambiguous outcomes to the operator |
+| 8 | Twin ↔ device | Planned state differs from physical state | Misleading display; next command may rely on a false state | Show observed pose, planned path, command, and observation time separately | Mark Diverged and hold the mission until a fresh observation and controller/operator decision |
+| 9 | Arm/pump | Actuator runs after vision loss or without valid preconditions | Arm collision or unintended watering | Board-level interlocks, motion/time/volume limits, and checking permission before every actuator command | Vision loss/emergency stop must stop arm and pump too; investigate unknown outcomes |
+| 10 | Dock/water | Robot is near the station but not connected, or fill level/flow is not measured | Twin reports a refill that did not happen | Connection sensor and a testable level/flow confirmation method | Record refill only after sensor feedback; otherwise show “unconfirmed” |
+
+**Current-state note:** the backend README says valid webhook payloads are broadcast to all open `/ws/esp` clients. Target-specific addressing and ACKs in this table are recommendations, not current capabilities. The frontend is still a scaffold and no server-connected twin exists.
+
+## 4. Navigation safety-order defect
+
+In the simulator navigation loop, arm interpolation (`NAV.armT`) runs before checking whether the latest camera fix is fresh. If vision is lost while the mission remains active, the arm can continue moving even if base motion is stopped later in the same tick. Before connecting servos to this logic, check frame freshness, emergency stop, and actuator permission before **any** movement command. A useful classroom test is to interrupt the camera feed while the arm is stowing and confirm that every actuator enters a safe state.
+
+The defect is documented here; runtime code was not changed. A real stop threshold must be measured from speed, stopping distance, and latency.
+
+Code reference: [`navTick` in the simulator](../simulation/greenhouse_live/greenhouse_live_sim.html). It updates `NAV.armT` before the `!NAV.on` and `NAV.estT` freshness checks; therefore, while a mission remains active, the arm is updated in a tick even when the camera estimate has expired.
+
+## 5. Suggested classroom demonstrations
+
+1. **Robot communication loss:** run a test LED command with an ACK, then disconnect Wi-Fi. Show that new commands are rejected, the connection becomes stale, and the board zeros motor output after its deadline.
+2. **Camera loss:** cover the robot tag or pause the frame stream during motion. Show frame age, safe stop, and the twin's Stale/Invalid state.
+3. **Delay/out-of-order message:** deliver an old message after a newer one. The system should reject the expired message and distinguish observed position from the planned route.
+4. **Twin/physical mismatch:** move the robot by hand or stop it. Compare observed pose with planned path and verify the twin does not claim success without fresh data.
+5. **Internet vs LAN outage:** disconnect internet/n8n while keeping the LAN, then disconnect the robot itself. Demonstrate the difference between a healthy accepted local mission and loss of device communication.
+6. **Arm safety:** interrupt vision while the arm is stowing; compare interlock behavior before and after correcting the check order.
+7. **Correct-device routing:** connect two boards with separate IDs and verify that only the target board ACKs and executes. Until routing and ACKs are implemented, this is a future acceptance test.
+
+For each demonstration, record event time, frame/telemetry age, command ID, ACK, actuator state, and twin state. Present rates and timeouts as experimental suggestions, not fixed values.
+
+## 6. Differences between the initial report and the repository
+
+- The initial report diagrams “camera → laptop OpenCV → estimate → local server → SSE/WebSocket → twin.” The repository does not currently connect that entire chain. Its backend receives HTTP from n8n and sends WebSocket payloads to ESPs; the frontend is still a placeholder.
+- The meeting architecture with two ESP32s and local control is a **target design**; the current backend has a simpler role and broadcasts payloads to all connected WebSocket clients.
+- The report assumes a real camera and OpenCV. The current simulator performs localization and navigation in its browser page; the Python server serves the page and MJPEG stream.
+- SSE, a single command queue, full permission validation, ACKs, and a command-state lifecycle are not established in the current backend documentation; describe them as development requirements.
+- Simulator autopilot does not prove hardware control. Real motor, servo, pump, and docking confirmation require separate tests.
+
+## Repository references
+
+- [Project brief and architecture gaps](PROJECT_BRIEF_Space_Greenhouse.md)
+- [Backend guide and current routes](../backend/README.md)
+- [Simulator guide](../simulation/README.md)
+- [Current frontend status](../frontend/README.md)
+
+---
+
 # تحلیل مسیر ارتباط و سناریوهای خرابی گلخونه
 
 این سند برای ارائهٔ کلاسی، وضعیت واقعی مخزن را از طرح پیشنهادی جلسه جدا می‌کند. آستانه‌ها و نرخ‌های عددی زیر معیار نهایی سخت‌افزار نیستند و باید با اندازه‌گیری تعیین شوند.
